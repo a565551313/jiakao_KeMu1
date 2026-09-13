@@ -1,15 +1,19 @@
 import { create } from "zustand";
-import { pickExam, examStats } from "@/data/questions";
+import { getExamQuestions } from "@/lib/exam-questions.functions";
 import {
   DEFAULT_CANDIDATE,
   EXAM_DURATION_MS,
+  EXAM_SIZE,
+  JUDGE_COUNT,
   PASS_SCORE,
+  SINGLE_COUNT,
   isCorrect,
   type AnswerKey,
   type Candidate,
   type ExamAnswer,
   type ExamResult,
   type ExamSession,
+  type Question,
   type Screen,
 } from "@/lib/exam-types";
 
@@ -35,13 +39,15 @@ interface ExamStore {
   screen: Screen;
   exam: ExamSession | null;
   result: ExamResult | null;
+  loadingQuestions: boolean;
+  questionError: string | null;
   showSubmit: boolean;
   abortAsk: boolean;
   wrongAlert: WrongAlert | null;
   pendingIndex: number | "submit" | null;
   hydrate: () => void;
   setCandidate: (patch: Partial<Candidate>) => void;
-  startExam: () => void;
+  startExam: () => Promise<void>;
   resumeExam: () => void;
   selectAnswer: (key: AnswerKey) => void;
   goTo: (index: number) => void;
@@ -60,6 +66,24 @@ interface ExamStore {
 
 function blankAnswers(n: number): ExamAnswer[] {
   return Array.from({ length: n }, () => ({ selected: null, judged: false }));
+}
+
+function shuffle<T>(items: T[]): T[] {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j]!, result[i]!];
+  }
+  return result;
+}
+
+function buildExam(pool: Question[]): Question[] {
+  const judge = shuffle(pool.filter((q) => q.type === "judge")).slice(0, JUDGE_COUNT);
+  const single = shuffle(pool.filter((q) => q.type === "single")).slice(0, SINGLE_COUNT);
+  if (judge.length < JUDGE_COUNT || single.length < SINGLE_COUNT) {
+    throw new Error(`题库数量不足，无法组成${EXAM_SIZE}题考试。`);
+  }
+  return shuffle([...judge, ...single]);
 }
 
 function persist(state: ExamStore) {
@@ -124,10 +148,7 @@ function leaveCurrent(
   const a = exam.answers[i];
   if (!q || !a || a.judged || a.selected === null) {
     return {
-      exam:
-        nextIndex === "submit"
-          ? exam
-          : { ...exam, current: nextIndex },
+      exam: nextIndex === "submit" ? exam : { ...exam, current: nextIndex },
       wrong: null,
       pending: nextIndex === "submit" ? "submit" : null,
     };
@@ -143,12 +164,9 @@ function leaveCurrent(
       pending: nextIndex === "submit" ? "submit" : null,
     };
   }
-  const opt =
-    q.type === "judge"
-      ? q.answer === "T"
-        ? "正确"
-        : "错误"
-      : `${q.answer}. ${q.options?.[q.answer.charCodeAt(0) - 65] ?? ""}`;
+  const opt = q.type === "judge"
+    ? q.answer === "T" ? "正确" : "错误"
+    : `${q.answer}. ${q.options?.[q.answer.charCodeAt(0) - 65] ?? ""}`;
   return {
     exam: judgedExam,
     wrong: { correctLabel: opt, explain: q.explain },
@@ -163,6 +181,8 @@ export const useExamStore = create<ExamStore>((set, get) => ({
   screen: "start",
   exam: null,
   result: null,
+  loadingQuestions: false,
+  questionError: null,
   showSubmit: false,
   abortAsk: false,
   wrongAlert: null,
@@ -187,32 +207,42 @@ export const useExamStore = create<ExamStore>((set, get) => ({
   },
 
   setCandidate: (patch) => {
-    set({ candidate: { ...get().candidate, ...patch } });
+    set({ candidate: { ...get().candidate, ...patch }, questionError: null });
     persist(get());
   },
 
-  startExam: () => {
-    const questions = pickExam();
-    set({
-      screen: "exam",
-      exam: {
-        questions,
-        answers: blankAnswers(questions.length),
-        current: 0,
-        startedAt: Date.now(),
-        durationMs: EXAM_DURATION_MS,
-      },
-      result: null,
-      showSubmit: false,
-      abortAsk: false,
-      wrongAlert: null,
-      pendingIndex: null,
-    });
-    persist(get());
+  startExam: async () => {
+    if (get().loadingQuestions) return;
+    set({ loadingQuestions: true, questionError: null });
+    try {
+      const pool = await getExamQuestions({ data: { vehicleType: get().candidate.vehicleType } });
+      const questions = buildExam(pool);
+      set({
+        screen: "exam",
+        exam: {
+          questions,
+          answers: blankAnswers(questions.length),
+          current: 0,
+          startedAt: Date.now(),
+          durationMs: EXAM_DURATION_MS,
+        },
+        result: null,
+        loadingQuestions: false,
+        questionError: null,
+        showSubmit: false,
+        abortAsk: false,
+        wrongAlert: null,
+        pendingIndex: null,
+      });
+      persist(get());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "题库获取失败，请稍后重试。";
+      set({ loadingQuestions: false, questionError: message });
+    }
   },
 
   resumeExam: () => {
-    if (get().exam) set({ screen: "exam" });
+    if (get().exam) set({ screen: "exam", questionError: null });
   },
 
   selectAnswer: (key) => {
@@ -233,12 +263,7 @@ export const useExamStore = create<ExamStore>((set, get) => ({
     const clamped = Math.max(0, Math.min(exam.questions.length - 1, index));
     if (clamped === exam.current) return;
     const { exam: next, wrong, pending } = leaveCurrent(exam, clamped);
-    set({
-      exam: next,
-      wrongAlert: wrong,
-      pendingIndex: pending,
-      showSubmit: pending === "submit",
-    });
+    set({ exam: next, wrongAlert: wrong, pendingIndex: pending, showSubmit: pending === "submit" });
     persist(get());
   },
 
@@ -263,12 +288,7 @@ export const useExamStore = create<ExamStore>((set, get) => ({
     const { exam } = get();
     if (!exam) return;
     const { exam: next, wrong, pending } = leaveCurrent(exam, "submit");
-    set({
-      exam: next,
-      wrongAlert: wrong,
-      pendingIndex: pending,
-      showSubmit: wrong ? false : true,
-    });
+    set({ exam: next, wrongAlert: wrong, pendingIndex: pending, showSubmit: wrong ? false : true });
     persist(get());
   },
 
@@ -288,11 +308,7 @@ export const useExamStore = create<ExamStore>((set, get) => ({
       return;
     }
     if (typeof pendingIndex === "number" && exam) {
-      set({
-        exam: { ...exam, current: pendingIndex },
-        wrongAlert: null,
-        pendingIndex: null,
-      });
+      set({ exam: { ...exam, current: pendingIndex }, wrongAlert: null, pendingIndex: null });
       persist(get());
       return;
     }
@@ -302,18 +318,11 @@ export const useExamStore = create<ExamStore>((set, get) => ({
   requestAbort: () => set({ abortAsk: true }),
   cancelAbort: () => set({ abortAsk: false }),
   confirmAbort: () => {
-    set({
-      abortAsk: false,
-      screen: "start",
-      exam: null,
-      showSubmit: false,
-      wrongAlert: null,
-      pendingIndex: null,
-    });
+    set({ abortAsk: false, screen: "start", exam: null, showSubmit: false, wrongAlert: null, pendingIndex: null });
     persist(get());
   },
 
-  retry: () => get().startExam(),
+  retry: () => { void get().startExam(); },
 
   backHome: () => {
     set({ screen: "start", exam: null, result: null, showSubmit: false });
@@ -327,4 +336,20 @@ export function liveStats(exam: ExamSession) {
 
 export function remainingMs(exam: ExamSession): number {
   return Math.max(0, exam.durationMs - (Date.now() - exam.startedAt));
+}
+
+export function examStats(questions: Question[], answers: ExamAnswer[]) {
+  let correct = 0;
+  let wrong = 0;
+  let blank = 0;
+  questions.forEach((q, i) => {
+    const a = answers[i];
+    if (!a || a.selected === null) {
+      blank += 1;
+      return;
+    }
+    if (isCorrect(q, a.selected)) correct += 1;
+    else wrong += 1;
+  });
+  return { correct, wrong, blank, score: correct };
 }

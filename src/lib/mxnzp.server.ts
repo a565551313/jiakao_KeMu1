@@ -1,7 +1,6 @@
 import type { Question, VehicleType } from "@/lib/exam-types";
 
 const API_URL = "https://www.mxnzp.com/api/driver_exam/question/list";
-const PAGE_SIZE = 10;
 const MAX_PAGES_PER_REQUEST = 60;
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -17,7 +16,7 @@ type MxnzpItem = {
 };
 
 type MxnzpResponse = {
-  code?: number;
+  code?: number | string;
   msg?: string;
   data?: {
     page?: number;
@@ -31,17 +30,12 @@ type MxnzpResponse = {
 type CacheEntry = { expiresAt: number; questions: Question[] };
 const cache = new Map<string, CacheEntry>();
 
-function rankForVehicle(vehicleType: VehicleType): number {
+export function rankForVehicle(vehicleType: VehicleType): number {
   switch (vehicleType) {
-    case "货车":
-      return 2;
-    case "客车":
-      return 3;
-    case "摩托车":
-      return 4;
-    case "小车":
-    default:
-      return 1;
+    case "货车": return 2;
+    case "客车": return 3;
+    case "摩托车": return 4;
+    case "小车": return 1;
   }
 }
 
@@ -71,36 +65,28 @@ function toQuestion(item: MxnzpItem): Question | null {
     if (/错误|错|否/.test(op1) && /正确|对|是/.test(op2)) answer = "F";
     if (!answer) return null;
     return {
-      id: String(item.id),
-      type: "judge",
-      text: title,
-      answer,
-      explain: "答案来自驾考题库接口。",
-      image: item.titlePic?.trim() || undefined,
+      id: String(item.id), type: "judge", text: title, answer,
+      explain: "答案来自驾考题库接口。", image: item.titlePic?.trim() || undefined,
     };
   }
 
+  // MXNZP documents titleType=1 as single choice. titleType=3 is multiple choice,
+  // but this endpoint's documented payload does not expose a reliable correct-answer
+  // field for multi-choice questions, so those questions are intentionally skipped.
   if (titleType !== 1) return null;
 
-  const sourceOptions = [item.op1, item.op2, item.op3, item.op4]
-    .map(cleanOption)
-    .filter(Boolean);
+  const sourceOptions = [item.op1, item.op2, item.op3, item.op4].map(cleanOption).filter(Boolean);
   if (sourceOptions.length !== 4) return null;
-
-  // MXNZP documents op1 as the correct option for single-choice questions.
   const correctText = cleanOption(item.op1);
   const options = shuffle(sourceOptions);
   const answerIndex = options.indexOf(correctText);
   if (answerIndex < 0 || answerIndex > 3) return null;
 
   return {
-    id: String(item.id),
-    type: "single",
-    text: title,
+    id: String(item.id), type: "single", text: title,
     options: options as [string, string, string, string],
-    answer: (String.fromCharCode(65 + answerIndex) as "A" | "B" | "C" | "D"),
-    explain: "答案来自驾考题库接口。",
-    image: item.titlePic?.trim() || undefined,
+    answer: String.fromCharCode(65 + answerIndex) as "A" | "B" | "C" | "D",
+    explain: "答案来自驾考题库接口。", image: item.titlePic?.trim() || undefined,
   };
 }
 
@@ -119,7 +105,7 @@ async function fetchPage(rank: number, page: number, appId: string, appSecret: s
   if (!response.ok) throw new Error(`题库接口 HTTP ${response.status}`);
 
   const json = (await response.json()) as MxnzpResponse;
-  if (json.code !== 1 || !json.data?.list) {
+  if (Number(json.code) !== 1 || !json.data?.list) {
     throw new Error(json.msg || "题库接口返回异常");
   }
   return json.data;
@@ -135,9 +121,7 @@ export async function getMxnzpExamQuestions(vehicleType: VehicleType): Promise<Q
   const rank = rankForVehicle(vehicleType);
   const cacheKey = `${rank}:1`;
   const cached = cache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now() && cached.questions.length >= 100) {
-    return shuffle(cached.questions);
-  }
+  if (cached && cached.expiresAt > Date.now() && cached.questions.length >= 100) return shuffle(cached.questions);
 
   const judge: Question[] = [];
   const single: Question[] = [];
@@ -146,14 +130,12 @@ export async function getMxnzpExamQuestions(vehicleType: VehicleType): Promise<Q
   for (let page = 1; page <= Math.min(totalPage, MAX_PAGES_PER_REQUEST); page += 1) {
     const data = await fetchPage(rank, page, appId, appSecret);
     totalPage = Math.max(1, Number(data.totalPage) || 1);
-
     for (const item of data.list ?? []) {
       const question = toQuestion(item);
       if (!question) continue;
       if (question.type === "judge") judge.push(question);
       else single.push(question);
     }
-
     if (judge.length >= 40 && single.length >= 60) break;
   }
 
@@ -165,5 +147,3 @@ export async function getMxnzpExamQuestions(vehicleType: VehicleType): Promise<Q
   cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, questions: pool });
   return shuffle(pool);
 }
-
-export { rankForVehicle, PAGE_SIZE };

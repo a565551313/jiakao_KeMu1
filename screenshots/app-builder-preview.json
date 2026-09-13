@@ -1,0 +1,36 @@
+{
+  "url": "http://127.0.0.1:8080/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "极客驾考26版",
+      "hasCanvas": false,
+      "bodyTextLen": 314,
+      "bodyTextHash": "f92b0cdf3e17d1ce32dc61ab0ab785a81bd419598517c86d57274060b871dcc2",
+      "bodyTextPrefix": "驾驶人科目一考试系统 考试须知： 1. 遵守考场纪律，服从监考人员指挥 2. 进入考场、手机关闭。禁止抽烟，禁止吃零食。 3. ",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "极客驾考26版",
+      "hasCanvas": false,
+      "bodyTextLen": 314,
+      "bodyTextHash": "f92b0cdf3e17d1ce32dc61ab0ab785a81bd419598517c86d57274060b871dcc2",
+      "bodyTextPrefix": "驾驶人科目一考试系统 考试须知： 1. 遵守考场纪律，服从监考人员指挥 2. 进入考场、手机关闭。禁止抽烟，禁止吃零食。 3. ",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-preview.json"
+}

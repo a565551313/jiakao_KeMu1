@@ -4,36 +4,11 @@ export type Gender = "男" | "女";
 export type VehicleType = "小车" | "货车" | "客车" | "摩托车";
 export type Screen = "start" | "exam" | "result";
 export type SignId =
-  | "stop"
-  | "yield"
-  | "no-entry"
-  | "no-pass"
-  | "no-parking"
-  | "no-stopping"
-  | "no-horn"
-  | "speed-40"
-  | "speed-end"
-  | "crosswalk"
-  | "pedestrian"
-  | "children"
-  | "danger"
-  | "construction"
-  | "tunnel"
-  | "honk"
-  | "no-left"
-  | "straight"
-  | "roundabout"
-  | "no-overtake"
-  | "parking"
-  | "min-speed"
-  | "highway"
-  | "slippery"
-  | "rocks"
-  | "u-turn"
-  | "give-way"
-  | "no-u-turn"
-  | "height"
-  | "lane-bus";
+  | "stop" | "yield" | "no-entry" | "no-pass" | "no-parking" | "no-stopping"
+  | "no-horn" | "speed-40" | "speed-end" | "crosswalk" | "pedestrian" | "children"
+  | "danger" | "construction" | "tunnel" | "honk" | "no-left" | "straight" | "roundabout"
+  | "no-overtake" | "parking" | "min-speed" | "highway" | "slippery" | "rocks" | "u-turn"
+  | "give-way" | "no-u-turn" | "height" | "lane-bus";
 
 export interface Question {
   id: string;
@@ -43,6 +18,7 @@ export interface Question {
   answer: AnswerKey;
   explain: string;
   sign?: SignId;
+  image?: string;
 }
 
 export interface Candidate {
